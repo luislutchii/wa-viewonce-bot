@@ -26,7 +26,7 @@ async function connectToWhatsApp() {
             const mediaType = Object.keys(viewOnceContent)[0]; // imageMessage ou videoMessage
             const mediaMessage = viewOnceContent[mediaType];
 
-            // Baixa o arquivo dos servidores do WhatsApp
+            // Baixa o arquivo do servidor do WhatsApp
             const stream = await downloadContentFromMessage(mediaMessage, mediaType.replace('Message', ''));
             let buffer = Buffer.from([]);
             for await (const chunk of stream) {
@@ -35,7 +35,7 @@ async function connectToWhatsApp() {
 
             const caption = `🔓 Mídia revelada!\n\nLegenda original: ${mediaMessage.caption || 'Nenhuma'}`;
 
-            // Envia de volta no chat atual (seja privado ou grupo)
+            // Envia de volta para a mesma conversa (privado ou grupo)
             if (mediaType === 'imageMessage') {
                 await sock.sendMessage(msg.key.remoteJid, { image: buffer, caption: caption }, { quoted: msg });
             } else if (mediaType === 'videoMessage') {
