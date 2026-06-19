@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, downloadContentFromMessage } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, downloadContentFromMessage, jidNormalizedUser } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 
 async function connectToWhatsApp() {
@@ -14,34 +14,49 @@ async function connectToWhatsApp() {
 
     sock.ev.on('messages.upsert', async m => {
         const msg = m.messages[0];
-        if (!msg.message) return;
+        if (!msg.message || msg.key.fromMe) return;
+
+        // 1. Verificar se a mensagem vem de um chat privado (ignora se terminar com @g.us)
+        const isGroup = msg.key.remoteJid.endsWith('@g.us');
+        if (isGroup) return;
 
         const type = Object.keys(msg.message)[0];
         let isViewOnce = type === 'viewOnceMessage' || type === 'viewOnceMessageV2';
         
         if (isViewOnce) {
-            console.log('\n[!] Mídia de visualização única detectada! Revelando...');
+            console.log('\n[!] Mídia de visualização única detectada em chat privado!');
 
             const viewOnceContent = msg.message[type].message;
             const mediaType = Object.keys(viewOnceContent)[0]; // imageMessage ou videoMessage
             const mediaMessage = viewOnceContent[mediaType];
 
-            // Baixa o arquivo do servidor do WhatsApp
+            console.log(`[~] Baixando ${mediaType === 'imageMessage' ? 'imagem' : 'vídeo'}...`);
+
+            // Baixa o arquivo dos servidores do WhatsApp
             const stream = await downloadContentFromMessage(mediaMessage, mediaType.replace('Message', ''));
             let buffer = Buffer.from([]);
             for await (const chunk of stream) {
                 buffer = Buffer.concat([buffer, chunk]);
             }
 
-            const caption = `🔓 Mídia revelada!\n\nLegenda original: ${mediaMessage.caption || 'Nenhuma'}`;
+            // Descobre o JID (número) do próprio Bot conectado
+            const myJid = jidNormalizedUser(sock.user.id);
+            
+            // Descobre quem enviou a mídia para colocar na legenda
+            const senderNumber = msg.key.participant || msg.key.remoteJid;
+            const senderClean = senderNumber.split('@')[0];
 
-            // Envia de volta para a mesma conversa (privado ou grupo)
+            const caption = `🔓 *Mídia Revelada Privada*\n\n👤 *Enviado por:* @${senderClean}\n📝 *Legenda:* ${mediaMessage.caption || 'Nenhuma'}`;
+
+            console.log('[~] Enviando mídia revelada para o seu chat privado...');
+
+            // 2. Envia a mídia SEMPRE para o próprio número conectado
             if (mediaType === 'imageMessage') {
-                await sock.sendMessage(msg.key.remoteJid, { image: buffer, caption: caption }, { quoted: msg });
+                await sock.sendMessage(myJid, { image: buffer, caption: caption, mentions: [senderNumber] });
             } else if (mediaType === 'videoMessage') {
-                await sock.sendMessage(msg.key.remoteJid, { video: buffer, caption: caption }, { quoted: msg });
+                await sock.sendMessage(myJid, { video: buffer, caption: caption, mentions: [senderNumber] });
             }
-            console.log('[+] Mídia enviada com sucesso!\n');
+            console.log('[+] Revelação enviada com sucesso para você!\n');
         }
     });
 }
